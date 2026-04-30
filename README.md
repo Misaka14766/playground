@@ -1,5 +1,7 @@
 # 🧪 Playground
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 我的小玩意儿收藏 —— 一些有趣的、值得保存和分享的小项目。
 
 每个子文件夹是一个独立的项目，通常是单页 HTML，直接用浏览器打开即可运行。

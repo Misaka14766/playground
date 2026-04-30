@@ -1,0 +1,1574 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LIF神经元脉冲模式检测器 | SNN教学演示</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-tertiary: #1a2332;
+            --text-primary: #e8eaed;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --neuron-a: #00d4ff;
+            --neuron-b: #ff9500;
+            --neuron-c: #00ff88;
+            --accent-blue: #3b82f6;
+            --accent-purple: #a855f7;
+            --border-color: #2a3548;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans SC', 'JetBrains Mono', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .app-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 30px;
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background: conic-gradient(from 0deg, var(--neuron-a), var(--neuron-c), var(--neuron-b), var(--neuron-a));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: logo-spin 8s linear infinite;
+        }
+
+        @keyframes logo-spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .logo-icon svg {
+            width: 28px;
+            height: 28px;
+            fill: var(--bg-primary);
+        }
+
+        .title-text h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--neuron-a), var(--neuron-c));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .title-text p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 20px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--bg-primary);
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse-dot 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+        }
+
+        .status-dot.paused {
+            background: var(--warning);
+            animation: none;
+        }
+
+        /* Main Grid */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 20px;
+        }
+
+        /* Visualization Panel */
+        .viz-panel {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            padding: 24px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .panel-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel-title::before {
+            content: '';
+            width: 4px;
+            height: 16px;
+            background: var(--accent-purple);
+            border-radius: 2px;
+        }
+
+        /* Neural Network Canvas */
+        .network-container {
+            position: relative;
+            height: 400px;
+            background: 
+                radial-gradient(circle at 50% 50%, rgba(168, 85, 247, 0.05) 0%, transparent 70%),
+                linear-gradient(var(--bg-tertiary) 1px, transparent 1px),
+                linear-gradient(90deg, var(--bg-tertiary) 1px, transparent 1px);
+            background-size: 100% 100%, 40px 40px, 40px 40px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        #networkCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Neuron Labels */
+        .neuron-labels {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .neuron-label {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .label-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .label-type {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .label-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            margin-top: 4px;
+            padding: 2px 8px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 4px;
+        }
+
+        .neuron-a .label-name { color: var(--neuron-a); }
+        .neuron-b .label-name { color: var(--neuron-b); }
+        .neuron-c .label-name { color: var(--neuron-c); }
+
+        /* Legend */
+        .network-legend {
+            position: absolute;
+            bottom: 16px;
+            left: 16px;
+            display: flex;
+            gap: 16px;
+            font-size: 0.75rem;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        /* Charts Row */
+        .charts-row {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .chart-panel {
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            padding: 16px;
+            border: 1px solid var(--border-color);
+        }
+
+        .chart-title {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chart-canvas {
+            width: 100%;
+            height: 120px;
+            background: var(--bg-primary);
+            border-radius: 8px;
+        }
+
+        /* Stats Panel */
+        .stats-panel {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            padding: 24px;
+        }
+
+        /* Control Section */
+        .control-section {
+            margin-bottom: 24px;
+        }
+
+        .control-section-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        /* Buttons */
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px 16px;
+            border: none;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(59, 130, 246, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border-color);
+        }
+
+        .btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Sliders */
+        .slider-group {
+            margin-bottom: 16px;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .slider-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .slider-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--accent-purple);
+            background: var(--bg-primary);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: var(--bg-primary);
+            border-radius: 3px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .stat-card {
+            background: var(--bg-tertiary);
+            border-radius: 10px;
+            padding: 14px;
+            border: 1px solid var(--border-color);
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+
+        .stat-value.neuron-a { color: var(--neuron-a); }
+        .stat-value.neuron-b { color: var(--neuron-b); }
+        .stat-value.neuron-c { color: var(--neuron-c); }
+        .stat-value.accent { color: var(--accent-purple); }
+        .stat-value.success { color: var(--success); }
+        .stat-value.warning { color: var(--warning); }
+
+        /* Weight Display */
+        .weight-display {
+            background: var(--bg-tertiary);
+            border-radius: 10px;
+            padding: 14px;
+            margin-top: 16px;
+            border: 1px solid var(--border-color);
+        }
+
+        .weight-bar {
+            height: 8px;
+            background: var(--bg-primary);
+            border-radius: 4px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+
+        .weight-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .weight-a { background: linear-gradient(90deg, var(--neuron-a), #00ff88); }
+        .weight-b { background: linear-gradient(90deg, var(--neuron-b), #ffdd00); }
+
+        /* Insight Box */
+        .insight-box {
+            background: linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(59, 130, 246, 0.1));
+            border: 1px solid rgba(168, 85, 247, 0.3);
+            border-radius: 12px;
+            padding: 16px;
+            margin-top: 20px;
+        }
+
+        .insight-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--accent-purple);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .insight-text {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* STDP Curve */
+        .stdp-info {
+            display: flex;
+            gap: 16px;
+            margin-top: 12px;
+            font-size: 0.75rem;
+        }
+
+        .stdp-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .stdp-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .ltp-dot { background: var(--success); }
+        .ltd-dot { background: var(--error); }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 16px;
+            }
+            
+            .charts-row {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-title">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                </div>
+                <div class="title-text">
+                    <h1>LIF神经元脉冲模式检测器</h1>
+                    <p>Spike-Timing-Dependent Plasticity | 脉冲时序依赖可塑性</p>
+                </div>
+            </div>
+            <div class="status-bar">
+                <div class="status-item">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusText">运行中</span>
+                </div>
+                <div class="status-item">
+                    <span>t = </span>
+                    <span id="timeDisplay">0.000</span>
+                    <span>s</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Grid -->
+        <div class="main-grid">
+            <!-- Visualization Panel -->
+            <div class="viz-panel">
+                <div class="panel-title">神经网络拓扑</div>
+                
+                <div class="network-container">
+                    <canvas id="networkCanvas"></canvas>
+                    <div class="neuron-labels">
+                        <div class="neuron-label neuron-a" style="left: 20%; top: 40%;">
+                            <div class="label-name">A</div>
+                            <div class="label-type">输入神经元</div>
+                            <div class="label-value" id="labelA">V: 0.00</div>
+                        </div>
+                        <div class="neuron-label neuron-b" style="left: 20%; top: 70%;">
+                            <div class="label-name">B</div>
+                            <div class="label-type">输入神经元</div>
+                            <div class="label-value" id="labelB">V: 0.00</div>
+                        </div>
+                        <div class="neuron-label neuron-c" style="left: 65%; top: 55%;">
+                            <div class="label-name">C</div>
+                            <div class="label-type">输出神经元</div>
+                            <div class="label-value" id="labelC">V: 0.00</div>
+                        </div>
+                    </div>
+                    <div class="network-legend">
+                        <div class="legend-item">
+                            <div class="legend-dot" style="background: var(--neuron-a)"></div>
+                            <span>输入A</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-dot" style="background: var(--neuron-b)"></div>
+                            <span>输入B</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-dot" style="background: var(--neuron-c)"></div>
+                            <span>输出C</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts -->
+                <div class="charts-row">
+                    <div class="chart-panel">
+                        <div class="chart-title">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h2v8H3v-8zm4-6h2v14H7V7zm4-4h2v18h-2V3zm4 8h2v10h-2V11zm4-4h2v14h-2V7z"/></svg>
+                            膜电位时序图
+                        </div>
+                        <canvas id="membraneChart" class="chart-canvas"></canvas>
+                    </div>
+                    <div class="chart-panel">
+                        <div class="chart-title">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
+                            脉冲栅格图
+                        </div>
+                        <canvas id="rasterChart" class="chart-canvas"></canvas>
+                    </div>
+                    <div class="chart-panel" style="grid-column: span 2;">
+                        <div class="chart-title">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
+                            STDP权重变化
+                        </div>
+                        <canvas id="weightChart" class="chart-canvas" style="height: 100px;"></canvas>
+                        <div class="stdp-info">
+                            <div class="stdp-indicator">
+                                <div class="stdp-dot ltp-dot"></div>
+                                <span>LTP (长时程增强)</span>
+                            </div>
+                            <div class="stdp-indicator">
+                                <div class="stdp-dot ltd-dot"></div>
+                                <span>LTD (长时程抑制)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats & Controls Panel -->
+            <div class="stats-panel">
+                <!-- Playback Controls -->
+                <div class="control-section">
+                    <div class="control-section-title">模拟控制</div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" id="playPauseBtn">
+                            <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                            <svg id="pauseIcon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                            <span id="playPauseText">运行</span>
+                        </button>
+                        <button class="btn btn-secondary" id="resetBtn">
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                            重置
+                        </button>
+                    </div>
+                    
+                    <div class="slider-group">
+                        <div class="slider-header">
+                            <span class="slider-label">模拟速度</span>
+                            <span class="slider-value" id="speedValue">1.0x</span>
+                        </div>
+                        <input type="range" id="speedSlider" min="0.5" max="4" step="0.1" value="1">
+                    </div>
+                </div>
+
+                <!-- Input Controls -->
+                <div class="control-section">
+                    <div class="control-section-title">输入参数</div>
+                    
+                    <div class="slider-group">
+                        <div class="slider-header">
+                            <span class="slider-label">A神经元频率 (Hz)</span>
+                            <span class="slider-value" id="freqAValue">20</span>
+                        </div>
+                        <input type="range" id="freqASlider" min="5" max="50" step="1" value="20">
+                    </div>
+                    
+                    <div class="slider-group">
+                        <div class="slider-header">
+                            <span class="slider-label">B神经元频率 (Hz)</span>
+                            <span class="slider-value" id="freqBValue">20</span>
+                        </div>
+                        <input type="range" id="freqBSlider" min="5" max="50" step="1" value="20">
+                    </div>
+                    
+                    <div class="slider-group">
+                        <div class="slider-header">
+                            <span class="slider-label">同步概率 (%)</span>
+                            <span class="slider-value" id="syncValue">30</span>
+                        </div>
+                        <input type="range" id="syncSlider" min="0" max="100" step="5" value="30">
+                    </div>
+                </div>
+
+                <!-- STDP Controls -->
+                <div class="control-section">
+                    <div class="control-section-title">STDP学习参数</div>
+                    
+                    <div class="slider-group">
+                        <div class="slider-header">
+                            <span class="slider-label">学习率</span>
+                            <span class="slider-value" id="lrValue">0.10</span>
+                        </div>
+                        <input type="range" id="lrSlider" min="0.01" max="0.3" step="0.01" value="0.1">
+                    </div>
+                    
+                    <div class="slider-group">
+                        <div class="slider-header">
+                            <span class="slider-label">LIF阈值</span>
+                            <span class="slider-value" id="thresholdValue">1.00</span>
+                        </div>
+                        <input type="range" id="thresholdSlider" min="0.5" max="2" step="0.05" value="1">
+                    </div>
+                </div>
+
+                <!-- Statistics -->
+                <div class="control-section">
+                    <div class="control-section-title">统计信息</div>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">A 发放次数</div>
+                            <div class="stat-value neuron-a" id="spikesA">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">B 发放次数</div>
+                            <div class="stat-value neuron-b" id="spikesB">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">C 发放次数</div>
+                            <div class="stat-value neuron-c" id="spikesC">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">同步检测</div>
+                            <div class="stat-value accent" id="syncDetect">--</div>
+                        </div>
+                    </div>
+                    
+                    <div class="weight-display">
+                        <div class="stat-label">突触权重 w(A→C)</div>
+                        <div class="weight-bar">
+                            <div class="weight-fill weight-a" id="weightAFill" style="width: 30%"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">
+                            <span>0.0</span>
+                            <span id="weightAValue">0.30</span>
+                            <span>1.0</span>
+                        </div>
+                    </div>
+                    
+                    <div class="weight-display">
+                        <div class="stat-label">突触权重 w(B→C)</div>
+                        <div class="weight-bar">
+                            <div class="weight-fill weight-b" id="weightBFill" style="width: 30%"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">
+                            <span>0.0</span>
+                            <span id="weightBValue">0.30</span>
+                            <span>1.0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Insight -->
+                <div class="insight-box">
+                    <div class="insight-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                        教学提示
+                    </div>
+                    <div class="insight-text" id="insightText">
+                        观察STDP如何调整权重。当A和B几乎同时发放时（时间差<5ms），它们的权重会增强，从而让C更容易被激活。这就是"同步检测"的学习机制！
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== LIF Neuron Class ====================
+        class LIFNeuron {
+            constructor(name, color, position) {
+                this.name = name;
+                this.color = color;
+                this.position = position;
+                this.voltage = 0;
+                this.spikes = [];
+                this.lastSpikeTime = -1000;
+                this.spikeCount = 0;
+            }
+
+            reset() {
+                this.voltage = 0;
+                this.spikes = [];
+                this.lastSpikeTime = -1000;
+                this.spikeCount = 0;
+            }
+
+            update(dV, time) {
+                this.voltage += dV;
+                
+                if (this.voltage >= window.threshold) {
+                    this.spike(time);
+                    return true;
+                }
+                return false;
+            }
+
+            spike(time) {
+                this.voltage = 0;
+                this.lastSpikeTime = time;
+                this.spikes.push(time);
+                this.spikeCount++;
+            }
+        }
+
+        // ==================== SNN Simulator ====================
+        class SNNSimulator {
+            constructor() {
+                this.time = 0;
+                this.dt = 0.001; // 1ms
+                this.weightA = 0.3;
+                this.weightB = 0.3;
+                this.maxWeight = 1.0;
+                this.minWeight = 0.0;
+                
+                // STDP parameters
+                this.A_plus = 0.1;
+                this.A_minus = 0.12;
+                this.tau_plus = 0.020; // 20ms
+                this.tau_minus = 0.020; // 20ms
+                
+                // Neurons
+                this.neuronA = new LIFNeuron('A', '#00d4ff', { x: 0.2, y: 0.4 });
+                this.neuronB = new LIFNeuron('B', '#ff9500', { x: 0.2, y: 0.7 });
+                this.neuronC = new LIFNeuron('C', '#00ff88', { x: 0.65, y: 0.55 });
+                
+                // History for charts
+                this.voltageHistory = [];
+                this.weightHistory = [];
+                this.spikeHistory = [];
+                this.syncEvents = 0;
+                this.totalSyncAttempts = 0;
+                this.pendingSyncWindows = [];
+                this.lastSyncPairTime = -1000;
+                
+                // Input state
+                this.lastInputASpike = -100;
+                this.lastInputBSpike = -100;
+                this.nextSpikeTimeA = 0;
+                this.nextSpikeTimeB = 0;
+                
+                // Animation
+                this.activeSpikes = [];
+                this.glowingNeurons = {};
+                
+                this.running = false;
+                this.speed = 1.0;
+                this.lastFrameTime = 0;
+                
+                this.freqA = 20;
+                this.freqB = 20;
+                this.syncProb = 0.3;
+                
+                this.scheduleNextInput();
+            }
+
+            reset() {
+                this.time = 0;
+                this.weightA = 0.3;
+                this.weightB = 0.3;
+                this.neuronA.reset();
+                this.neuronB.reset();
+                this.neuronC.reset();
+                this.voltageHistory = [];
+                this.weightHistory = [];
+                this.spikeHistory = [];
+                this.activeSpikes = [];
+                this.glowingNeurons = {};
+                this.syncEvents = 0;
+                this.totalSyncAttempts = 0;
+                this.pendingSyncWindows = [];
+                this.lastSyncPairTime = -1000;
+                this.lastInputASpike = -100;
+                this.lastInputBSpike = -100;
+                this.scheduleNextInput();
+                this.updateUI();
+            }
+
+            scheduleNextInput() {
+                // Poisson-like spike generation
+                const intervalA = 1.0 / this.freqA;
+                const intervalB = 1.0 / this.freqB;
+                
+                this.nextSpikeTimeA = this.time + (-Math.log(Math.random()) * intervalA);
+                this.nextSpikeTimeB = this.time + (-Math.log(Math.random()) * intervalB);
+            }
+
+            applySTDPPostSynaptic(spikeTime, presynapticNeuron) {
+                const lastSpike = presynapticNeuron.lastSpikeTime;
+                const deltaT = spikeTime - lastSpike;
+                
+                if (deltaT > 0 && deltaT < 0.1) { // Pre before post (LTP)
+                    const deltaW = this.A_plus * Math.exp(-deltaT / this.tau_plus);
+                    if (presynapticNeuron === this.neuronA) {
+                        this.weightA = Math.min(this.maxWeight, this.weightA + deltaW * window.learningRate / 0.1);
+                    } else {
+                        this.weightB = Math.min(this.maxWeight, this.weightB + deltaW * window.learningRate / 0.1);
+                    }
+                } else if (deltaT < 0 && deltaT > -0.1) { // Post before pre (LTD)
+                    const deltaW = -this.A_minus * Math.exp(deltaT / this.tau_minus);
+                    if (presynapticNeuron === this.neuronA) {
+                        this.weightA = Math.max(this.minWeight, this.weightA + deltaW * window.learningRate / 0.1);
+                    } else {
+                        this.weightB = Math.max(this.minWeight, this.weightB + deltaW * window.learningRate / 0.1);
+                    }
+                }
+            }
+
+            applySTDPPresynaptic(spikeTime, presynapticNeuron) {
+                const deltaT = spikeTime - this.neuronC.lastSpikeTime;
+                if (deltaT > 0 && deltaT < 0.1) { // Post before pre (LTD)
+                    const deltaW = -this.A_minus * Math.exp(-deltaT / this.tau_minus);
+                    if (presynapticNeuron === this.neuronA) {
+                        this.weightA = Math.max(this.minWeight, this.weightA + deltaW * window.learningRate / 0.1);
+                    } else {
+                        this.weightB = Math.max(this.minWeight, this.weightB + deltaW * window.learningRate / 0.1);
+                    }
+                }
+            }
+
+            step(deltaTime) {
+                if (!this.running) return;
+                
+                const scaledDeltaTime = Math.max(0, deltaTime * this.speed);
+                const steps = Math.max(1, Math.ceil(scaledDeltaTime / this.dt));
+                const dtStep = scaledDeltaTime / steps;
+                
+                for (let i = 0; i < steps; i++) {
+                    this.singleStep(dtStep);
+                    this.time += dtStep;
+                }
+            }
+
+            singleStep(dtStep) {
+                // Input A spike
+                if (this.time >= this.nextSpikeTimeA) {
+                    this.handleInputSpike(this.neuronA, 'A');
+                    this.lastInputASpike = this.time;
+                    const intervalA = 1.0 / this.freqA;
+                    this.nextSpikeTimeA = this.time + (-Math.log(Math.random()) * intervalA);
+                }
+                
+                // Input B spike
+                if (this.time >= this.nextSpikeTimeB) {
+                    this.handleInputSpike(this.neuronB, 'B');
+                    this.lastInputBSpike = this.time;
+
+                    // Schedule next B event; with sync probability, bias next B near next A
+                    const intervalB = 1.0 / this.freqB;
+                    const asyncNextB = this.time + (-Math.log(Math.random()) * intervalB);
+                    if (Math.random() < this.syncProb) {
+                        const syncOffset = (Math.random() - 0.5) * 0.008; // ±4ms
+                        const syncTarget = Math.max(this.nextSpikeTimeA, this.time + dtStep) + syncOffset;
+                        this.nextSpikeTimeB = Math.max(this.time + dtStep, syncTarget);
+                    } else {
+                        this.nextSpikeTimeB = asyncNextB;
+                    }
+                }
+                
+                // Decay for input neurons
+                const decay = Math.exp(-dtStep / 0.020);
+                if (this.neuronA.voltage > 0) this.neuronA.voltage *= decay;
+                if (this.neuronB.voltage > 0) this.neuronB.voltage *= decay;
+                
+                // Compute synaptic input to C
+                let synapticCurrent = 0;
+                
+                // A -> C
+                if (this.neuronA.lastSpikeTime > this.time - 0.050) {
+                    const recent = Math.exp(-(this.time - this.neuronA.lastSpikeTime) / 0.010);
+                    synapticCurrent += this.weightA * recent * 3;
+                }
+                
+                // B -> C
+                if (this.neuronB.lastSpikeTime > this.time - 0.050) {
+                    const recent = Math.exp(-(this.time - this.neuronB.lastSpikeTime) / 0.010);
+                    synapticCurrent += this.weightB * recent * 3;
+                }
+                
+                // Baseline input to C
+                const baselineInput = 0.3;
+                const dV = (-this.neuronC.voltage + synapticCurrent + baselineInput) / 0.020 * dtStep;
+                
+                // Update C
+                const spikedC = this.neuronC.update(dV, this.time);
+                
+                if (spikedC) {
+                    this.activeSpikes.push({
+                        from: 'C',
+                        progress: 0,
+                        x: this.neuronC.position.x,
+                        y: this.neuronC.position.y
+                    });
+                    this.glowingNeurons['C'] = 1.0;
+                    this.spikeHistory.push({ time: this.time, neuron: 'C' });
+                    
+                    // Apply STDP for C's spike on connections
+                    this.applySTDPPostSynaptic(this.time, this.neuronA);
+                    this.applySTDPPostSynaptic(this.time, this.neuronB);
+
+                    // Resolve pending sync windows by first matching C spike
+                    const matchedWindow = this.pendingSyncWindows.find(w => !w.resolved && this.time >= w.start && this.time <= w.end);
+                    if (matchedWindow) {
+                        matchedWindow.resolved = true;
+                        this.syncEvents++;
+                    }
+                }
+                
+                // Record history
+                if (this.voltageHistory.length === 0 || this.time - this.voltageHistory[this.voltageHistory.length - 1].time > 0.010) {
+                    this.voltageHistory.push({
+                        time: this.time,
+                        vA: this.neuronA.voltage,
+                        vB: this.neuronB.voltage,
+                        vC: this.neuronC.voltage
+                    });
+                    
+                    this.weightHistory.push({
+                        time: this.time,
+                        wA: this.weightA,
+                        wB: this.weightB
+                    });
+
+                    if (this.voltageHistory.length > 5000) this.voltageHistory.shift();
+                    if (this.weightHistory.length > 5000) this.weightHistory.shift();
+                }
+                
+                // Track new sync attempts (deduped by pair timestamp)
+                const timeDiff = Math.abs(this.lastInputASpike - this.lastInputBSpike);
+                const pairTime = Math.max(this.lastInputASpike, this.lastInputBSpike);
+                if (timeDiff < 0.005 && pairTime > this.lastSyncPairTime + 1e-9) {
+                    this.lastSyncPairTime = pairTime;
+                    this.totalSyncAttempts++;
+                    this.pendingSyncWindows.push({
+                        start: pairTime - 0.005,
+                        end: pairTime + 0.030,
+                        resolved: false
+                    });
+                }
+
+                // Remove old sync windows and keep bounded memory
+                this.pendingSyncWindows = this.pendingSyncWindows.filter(w => w.end >= this.time - 0.1).slice(-300);
+                
+                // Update active spike animations
+                this.activeSpikes.forEach(spike => {
+                    spike.progress += 0.05;
+                });
+                this.activeSpikes = this.activeSpikes.filter(s => s.progress < 1);
+                
+                // Update glow decay
+                Object.keys(this.glowingNeurons).forEach(key => {
+                    this.glowingNeurons[key] *= 0.92;
+                    if (this.glowingNeurons[key] < 0.01) delete this.glowingNeurons[key];
+                });
+            }
+
+            handleInputSpike(neuron, name) {
+                neuron.spike(this.time);
+                this.spikeHistory.push({ time: this.time, neuron: name });
+                if (this.spikeHistory.length > 8000) this.spikeHistory.shift();
+                
+                this.activeSpikes.push({
+                    from: name,
+                    progress: 0,
+                    x: neuron.position.x,
+                    y: neuron.position.y
+                });
+                
+                this.glowingNeurons[name] = 1.0;
+
+                // Pre-synaptic spike updates STDP (LTD branch for post-before-pre)
+                if (name === 'A') {
+                    this.applySTDPPresynaptic(this.time, this.neuronA);
+                } else if (name === 'B') {
+                    this.applySTDPPresynaptic(this.time, this.neuronB);
+                }
+            }
+
+            updateUI() {
+                document.getElementById('spikesA').textContent = this.neuronA.spikeCount;
+                document.getElementById('spikesB').textContent = this.neuronB.spikeCount;
+                document.getElementById('spikesC').textContent = this.neuronC.spikeCount;
+                
+                document.getElementById('labelA').textContent = `V: ${this.neuronA.voltage.toFixed(2)}`;
+                document.getElementById('labelB').textContent = `V: ${this.neuronB.voltage.toFixed(2)}`;
+                document.getElementById('labelC').textContent = `V: ${this.neuronC.voltage.toFixed(2)}`;
+                
+                document.getElementById('weightAValue').textContent = this.weightA.toFixed(2);
+                document.getElementById('weightAFill').style.width = `${this.weightA * 100}%`;
+                document.getElementById('weightBValue').textContent = this.weightB.toFixed(2);
+                document.getElementById('weightBFill').style.width = `${this.weightB * 100}%`;
+                
+                document.getElementById('timeDisplay').textContent = this.time.toFixed(3);
+                
+                const syncRate = this.totalSyncAttempts > 0 ?
+                    Math.round((this.syncEvents / this.totalSyncAttempts) * 100) : 0;
+                document.getElementById('syncDetect').textContent = `${syncRate}%`;
+                
+                // Update insight text based on state
+                this.updateInsight();
+            }
+
+            updateInsight() {
+                const text = document.getElementById('insightText');
+                if (this.weightA > 0.6 && this.weightB > 0.6) {
+                    text.textContent = '太棒了！权重已达到较高水平，C神经元现在能可靠地检测同步输入！这就是STDP的神奇之处——它让神经网络学会了"同步=重要"这一模式。';
+                } else if (this.weightA > 0.4 || this.weightB > 0.4) {
+                    text.textContent = '权重正在增强！观察C的膜电位，当A和B同时输入时，电位累积更快。注意调整参数（阈值、同步概率）会显著影响学习效果——这就是类脑计算的魅力所在！';
+                } else {
+                    text.textContent = '观察STDP如何调整权重。当A和B几乎同时发放时（时间差<5ms），它们的权重会增强，从而让C更容易被激活。这就是"同步检测"的学习机制！';
+                }
+            }
+        }
+
+        // ==================== Renderer ====================
+        class Renderer {
+            constructor(simulator) {
+                this.sim = simulator;
+                this.canvas = document.getElementById('networkCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.membraneCanvas = document.getElementById('membraneChart');
+                this.membraneCtx = this.membraneCanvas.getContext('2d');
+                this.rasterCanvas = document.getElementById('rasterChart');
+                this.rasterCtx = this.rasterCanvas.getContext('2d');
+                this.weightCanvas = document.getElementById('weightChart');
+                this.weightCtx = this.weightCanvas.getContext('2d');
+                
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+            }
+
+            resize() {
+                const container = this.canvas.parentElement;
+                this.canvas.width = container.clientWidth * window.devicePixelRatio;
+                this.canvas.height = container.clientHeight * window.devicePixelRatio;
+                this.canvas.style.width = container.clientWidth + 'px';
+                this.canvas.style.height = container.clientHeight + 'px';
+                this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+                this.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+                
+                // Resize chart canvases
+                [this.membraneCanvas, this.rasterCanvas, this.weightCanvas].forEach(c => {
+                    const parent = c.parentElement;
+                    const chartWidth = c.clientWidth || parent.clientWidth;
+                    const chartHeight = parseInt(window.getComputedStyle(c).height, 10) || parent.clientHeight || 120;
+                    c.width = chartWidth * window.devicePixelRatio;
+                    c.height = chartHeight * window.devicePixelRatio;
+                    c.style.width = chartWidth + 'px';
+                    c.style.height = chartHeight + 'px';
+                    const chartCtx = c.getContext('2d');
+                    chartCtx.setTransform(1, 0, 0, 1, 0, 0);
+                    chartCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+                });
+            }
+
+            render() {
+                this.renderNetwork();
+                this.renderMembraneChart();
+                this.renderRasterChart();
+                this.renderWeightChart();
+            }
+
+            renderNetwork() {
+                const ctx = this.ctx;
+                const w = this.canvas.width / window.devicePixelRatio;
+                const h = this.canvas.height / window.devicePixelRatio;
+                
+                ctx.clearRect(0, 0, w, h);
+                
+                const neurons = [
+                    { n: this.sim.neuronA, glow: this.sim.glowingNeurons['A'] || 0 },
+                    { n: this.sim.neuronB, glow: this.sim.glowingNeurons['B'] || 0 },
+                    { n: this.sim.neuronC, glow: this.sim.glowingNeurons['C'] || 0 }
+                ];
+                
+                // Draw connections
+                this.drawConnection(ctx, this.sim.neuronA, this.sim.neuronC, this.sim.weightA, '#00d4ff');
+                this.drawConnection(ctx, this.sim.neuronB, this.sim.neuronC, this.sim.weightB, '#ff9500');
+                
+                // Draw active spikes
+                this.sim.activeSpikes.forEach(spike => {
+                    this.drawSpike(ctx, spike, w, h);
+                });
+                
+                // Draw neurons
+                neurons.forEach(({ n, glow }) => {
+                    this.drawNeuron(ctx, n, w, h, glow);
+                });
+            }
+
+            drawConnection(ctx, from, to, weight, color) {
+                const w = this.canvas.width / window.devicePixelRatio;
+                const h = this.canvas.height / window.devicePixelRatio;
+                
+                const x1 = from.position.x * w;
+                const y1 = from.position.y * h;
+                const x2 = to.position.x * w;
+                const y2 = to.position.y * h;
+                
+                // Line style based on weight
+                const lineWidth = 2 + weight * 6;
+                const alpha = 0.3 + weight * 0.5;
+                
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.strokeStyle = color;
+                ctx.globalAlpha = alpha;
+                ctx.lineWidth = lineWidth;
+                ctx.stroke();
+                
+                // Arrow head
+                const angle = Math.atan2(y2 - y1, x2 - x1);
+                const arrowSize = 8 + weight * 4;
+                
+                ctx.beginPath();
+                ctx.moveTo(x2, y2);
+                ctx.lineTo(x2 - arrowSize * Math.cos(angle - 0.4), y2 - arrowSize * Math.sin(angle - 0.4));
+                ctx.lineTo(x2 - arrowSize * Math.cos(angle + 0.4), y2 - arrowSize * Math.sin(angle + 0.4));
+                ctx.closePath();
+                ctx.fillStyle = color;
+                ctx.globalAlpha = alpha;
+                ctx.fill();
+                
+                ctx.globalAlpha = 1;
+            }
+
+            drawSpike(ctx, spike, w, h) {
+                const x = spike.x * w;
+                const y = spike.y * h;
+                const progress = spike.progress;
+                const radius = 30 + progress * 100;
+                const alpha = 1 - progress;
+                
+                const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+                gradient.addColorStop(0, `rgba(255, 255, 255, ${alpha * 0.8})`);
+                gradient.addColorStop(0.2, `rgba(168, 85, 247, ${alpha * 0.6})`);
+                gradient.addColorStop(1, 'rgba(168, 85, 247, 0)');
+                
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+
+            drawNeuron(ctx, neuron, w, h, glow) {
+                const x = neuron.position.x * w;
+                const y = neuron.position.y * h;
+                const baseRadius = 28;
+                const glowRadius = baseRadius + glow * 30;
+                
+                // Outer glow
+                if (glow > 0.1) {
+                    const glowGradient = ctx.createRadialGradient(x, y, baseRadius, x, y, glowRadius);
+                    glowGradient.addColorStop(0, neuron.color + '60');
+                    glowGradient.addColorStop(1, neuron.color + '00');
+                    
+                    ctx.beginPath();
+                    ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
+                    ctx.fillStyle = glowGradient;
+                    ctx.fill();
+                }
+                
+                // Main body
+                const bodyGradient = ctx.createRadialGradient(x - 8, y - 8, 0, x, y, baseRadius);
+                bodyGradient.addColorStop(0, '#ffffff');
+                bodyGradient.addColorStop(0.3, neuron.color);
+                bodyGradient.addColorStop(1, this.darkenColor(neuron.color, 0.5));
+                
+                ctx.beginPath();
+                ctx.arc(x, y, baseRadius, 0, Math.PI * 2);
+                ctx.fillStyle = bodyGradient;
+                ctx.fill();
+                
+                // Border
+                ctx.strokeStyle = neuron.color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // Inner highlight
+                ctx.beginPath();
+                ctx.arc(x - 6, y - 6, 8, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.fill();
+            }
+
+            darkenColor(color, factor) {
+                const hex = color.replace('#', '');
+                const r = Math.floor(parseInt(hex.substr(0, 2), 16) * factor);
+                const g = Math.floor(parseInt(hex.substr(2, 2), 16) * factor);
+                const b = Math.floor(parseInt(hex.substr(4, 2), 16) * factor);
+                return `rgb(${r}, ${g}, ${b})`;
+            }
+
+            renderMembraneChart() {
+                const ctx = this.membraneCtx;
+                const canvas = this.membraneCanvas;
+                const w = canvas.width / window.devicePixelRatio;
+                const h = canvas.height / window.devicePixelRatio;
+                
+                ctx.fillStyle = '#0a0e17';
+                ctx.fillRect(0, 0, w, h);
+                
+                if (this.sim.voltageHistory.length < 2) return;
+                
+                const history = this.sim.voltageHistory.slice(-200);
+                const startTime = history[0].time;
+                const endTime = history[history.length - 1].time;
+                const timeRange = Math.max(0.1, endTime - startTime);
+                
+                // Grid
+                ctx.strokeStyle = '#1a2332';
+                ctx.lineWidth = 1;
+                for (let i = 0; i <= 4; i++) {
+                    const y = (i / 4) * h;
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(w, y);
+                    ctx.stroke();
+                }
+                
+                // Threshold line
+                const threshY = h - (window.threshold / 1.5) * h;
+                ctx.strokeStyle = '#ef444480';
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(0, threshY);
+                ctx.lineTo(w, threshY);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                // Draw voltage traces
+                const colors = ['#00d4ff', '#ff9500', '#00ff88'];
+                const keys = ['vA', 'vB', 'vC'];
+                
+                keys.forEach((key, idx) => {
+                    ctx.beginPath();
+                    ctx.strokeStyle = colors[idx];
+                    ctx.lineWidth = 1.5;
+                    
+                    history.forEach((point, i) => {
+                        const x = ((point.time - startTime) / timeRange) * w;
+                        const y = h - (point[key] / 1.5) * h;
+                        if (i === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    });
+                    ctx.stroke();
+                });
+                
+                // Labels
+                ctx.font = '10px JetBrains Mono';
+                ctx.fillStyle = '#00d4ff';
+                ctx.fillText('A', 5, 12);
+                ctx.fillStyle = '#ff9500';
+                ctx.fillText('B', 18, 12);
+                ctx.fillStyle = '#00ff88';
+                ctx.fillText('C', 31, 12);
+            }
+
+            renderRasterChart() {
+                const ctx = this.rasterCtx;
+                const canvas = this.rasterCanvas;
+                const w = canvas.width / window.devicePixelRatio;
+                const h = canvas.height / window.devicePixelRatio;
+                
+                ctx.fillStyle = '#0a0e17';
+                ctx.fillRect(0, 0, w, h);
+                
+                if (this.sim.spikeHistory.length < 2) return;
+                
+                const history = this.sim.spikeHistory.slice(-100);
+                const startTime = history[0].time;
+                const endTime = history[history.length - 1].time;
+                const timeRange = Math.max(0.5, endTime - startTime);
+                
+                // Grid
+                ctx.strokeStyle = '#1a2332';
+                ctx.lineWidth = 1;
+                for (let i = 0; i <= 4; i++) {
+                    const y = (i / 4) * h;
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(w, y);
+                    ctx.stroke();
+                }
+                
+                const neuronY = { 'A': h * 0.25, 'B': h * 0.5, 'C': h * 0.75 };
+                const colors = { 'A': '#00d4ff', 'B': '#ff9500', 'C': '#00ff88' };
+                
+                history.forEach(spike => {
+                    const x = ((spike.time - startTime) / timeRange) * w;
+                    const y = neuronY[spike.neuron];
+                    
+                    ctx.fillStyle = colors[spike.neuron];
+                    ctx.beginPath();
+                    ctx.arc(x, y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+                
+                // Labels
+                ctx.font = '10px JetBrains Mono';
+                ctx.fillStyle = '#00d4ff';
+                ctx.fillText('A', 5, neuronY['A'] + 3);
+                ctx.fillStyle = '#ff9500';
+                ctx.fillText('B', 5, neuronY['B'] + 3);
+                ctx.fillStyle = '#00ff88';
+                ctx.fillText('C', 5, neuronY['C'] + 3);
+            }
+
+            renderWeightChart() {
+                const ctx = this.weightCtx;
+                const canvas = this.weightCanvas;
+                const w = canvas.width / window.devicePixelRatio;
+                const h = canvas.height / window.devicePixelRatio;
+                
+                ctx.fillStyle = '#0a0e17';
+                ctx.fillRect(0, 0, w, h);
+                
+                if (this.sim.weightHistory.length < 2) return;
+                
+                const history = this.sim.weightHistory.slice(-200);
+                const startTime = history[0].time;
+                const endTime = history[history.length - 1].time;
+                const timeRange = Math.max(0.1, endTime - startTime);
+                
+                // Grid
+                ctx.strokeStyle = '#1a2332';
+                ctx.lineWidth = 1;
+                for (let i = 0; i <= 2; i++) {
+                    const y = (i / 2) * h;
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(w, y);
+                    ctx.stroke();
+                }
+                
+                // Draw weight traces
+                const colors = ['#00d4ff', '#ff9500'];
+                const keys = ['wA', 'wB'];
+                
+                keys.forEach((key, idx) => {
+                    ctx.beginPath();
+                    ctx.strokeStyle = colors[idx];
+                    ctx.lineWidth = 2;
+                    
+                    history.forEach((point, i) => {
+                        const x = ((point.time - startTime) / timeRange) * w;
+                        const y = h - point[key] * h;
+                        if (i === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    });
+                    ctx.stroke();
+                    
+                    // Fill under curve
+                    ctx.lineTo(w, h);
+                    ctx.lineTo(0, h);
+                    ctx.closePath();
+                    ctx.fillStyle = colors[idx] + '15';
+                    ctx.fill();
+                });
+                
+                // Labels
+                ctx.font = '10px JetBrains Mono';
+                ctx.fillStyle = '#00d4ff';
+                ctx.fillText('w(A→C)', 5, 12);
+                ctx.fillStyle = '#ff9500';
+                ctx.fillText('w(B→C)', 70, 12);
+            }
+        }
+
+        // ==================== Global State ====================
+        window.threshold = 1.0;
+        window.learningRate = 0.1;
+        
+        let sim = new SNNSimulator();
+        let renderer = new Renderer(sim);
+
+        // ==================== UI Controls ====================
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const playIcon = document.getElementById('playIcon');
+        const pauseIcon = document.getElementById('pauseIcon');
+        const playPauseText = document.getElementById('playPauseText');
+        const resetBtn = document.getElementById('resetBtn');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+
+        function updatePlayButton() {
+            if (sim.running) {
+                playIcon.style.display = 'none';
+                pauseIcon.style.display = 'block';
+                playPauseText.textContent = '暂停';
+                statusDot.classList.remove('paused');
+                statusText.textContent = '运行中';
+            } else {
+                playIcon.style.display = 'block';
+                pauseIcon.style.display = 'none';
+                playPauseText.textContent = '运行';
+                statusDot.classList.add('paused');
+                statusText.textContent = '已暂停';
+            }
+        }
+
+        playPauseBtn.addEventListener('click', () => {
+            sim.running = !sim.running;
+            updatePlayButton();
+        });
+
+        resetBtn.addEventListener('click', () => {
+            sim.reset();
+            updatePlayButton();
+        });
+
+        // Sliders
+        document.getElementById('speedSlider').addEventListener('input', (e) => {
+            sim.speed = parseFloat(e.target.value);
+            document.getElementById('speedValue').textContent = sim.speed.toFixed(1) + 'x';
+        });
+
+        document.getElementById('freqASlider').addEventListener('input', (e) => {
+            sim.freqA = parseInt(e.target.value);
+            document.getElementById('freqAValue').textContent = sim.freqA;
+        });
+
+        document.getElementById('freqBSlider').addEventListener('input', (e) => {
+            sim.freqB = parseInt(e.target.value);
+            document.getElementById('freqBValue').textContent = sim.freqB;
+        });
+
+        document.getElementById('syncSlider').addEventListener('input', (e) => {
+            sim.syncProb = parseInt(e.target.value) / 100;
+            document.getElementById('syncValue').textContent = e.target.value;
+        });
+
+        document.getElementById('lrSlider').addEventListener('input', (e) => {
+            window.learningRate = parseFloat(e.target.value);
+            document.getElementById('lrValue').textContent = window.learningRate.toFixed(2);
+        });
+
+        document.getElementById('thresholdSlider').addEventListener('input', (e) => {
+            window.threshold = parseFloat(e.target.value);
+            document.getElementById('thresholdValue').textContent = window.threshold.toFixed(2);
+        });
+
+        // ==================== Animation Loop ====================
+        function animate(timestamp) {
+            if (!sim.lastFrameTime) sim.lastFrameTime = timestamp;
+            const deltaTime = Math.min((timestamp - sim.lastFrameTime) / 1000, 0.1);
+            sim.lastFrameTime = timestamp;
+            
+            sim.step(deltaTime);
+            renderer.render();
+            sim.updateUI();
+            
+            requestAnimationFrame(animate);
+        }
+
+        // Start
+        requestAnimationFrame(animate);
+        sim.running = false;
+        updatePlayButton();
+    </script>
+</body>
+</html>

@@ -1915,6 +1915,8 @@ function connectExternalAI() {
   try {
     extWs = new WebSocket('ws://localhost:8765');
     extWs.onopen = () => {
+      // 主动声明身份为游戏端
+      extWs.send(JSON.stringify({type: 'identify', role: 'game'}));
       updateAIStatusUI('connected', '外部AI已连接');
       addLog('外部AI已连接 (ws://localhost:8765)', 'system');
       showToast('🔌 外部AI已连接');
@@ -1930,6 +1932,11 @@ function connectExternalAI() {
           pendingResolve(data);
           pendingResolve = null;
           updateAIStatusUI('connected', '外部AI已连接');
+        } else if (data.type === 'identified') {
+          addLog(`身份确认: ${data.role}`, 'system');
+        } else if (data.type === 'ai_connected') {
+          addLog('外部AI已上线', 'system');
+          updateAIStatusUI('connected', '外部AI已就绪');
         }
       } catch(e) { console.error('AI WS parse error', e); }
     };

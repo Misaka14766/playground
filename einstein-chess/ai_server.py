@@ -117,6 +117,7 @@ class EWNServer:
         self.ai_client: Optional[WebSocketServerProtocol] = None
         self.pending_request: Optional[dict] = None
         self.use_builtin_ai = True  # 当没有外部AI时使用内置AI
+        self._pending_identify = {}  # ws -> 等待 identify 的标志
         self.stats = {
             'requests': 0,
             'responses': 0,
@@ -125,40 +126,83 @@ class EWNServer:
         }
 
     async def handle_connection(self, websocket: WebSocketServerProtocol, path: str = '/'):
-        """处理新的 WebSocket 连接"""
+        """处理新的 WebSocket 连接
+
+        连接后客户端必须在 10 秒内发送 identify 消息声明身份：
+          {"type":"identify","role":"game"}   或   {"type":"identify","role":"ai"}
+        超时未声明则断开连接。
+        """
         client_addr = websocket.remote_address
-        logger.info(f"新连接: {client_addr}, 路径: {path}")
-        
+        logger.info(f"新连接: {client_addr}")
+
         try:
-            # 发送欢迎消息和角色分配
+            # 发送欢迎消息，要求客户端声明身份
             await websocket.send(json.dumps({
                 "type": "connected",
-                "role": "game" if self.game_client is None else "ai",
-                "message": "已连接到爱恩斯坦棋AI服务",
-                "server_version": "1.0.0"
+                "message": "已连接到爱恩斯坦棋AI服务，请发送 identify 消息声明身份",
+                "server_version": "2.0.0"
             }))
-            
-            # 角色分配
-            if self.game_client is None:
-                self.game_client = websocket
-                logger.info(f"游戏客户端已连接: {client_addr}")
-            elif self.ai_client is None:
-                self.ai_client = websocket
-                self.use_builtin_ai = False
-                logger.info(f"外部AI客户端已连接: {client_addr}")
-                # 通知游戏端
-                if self.game_client:
-                    try:
-                        await self.game_client.send(json.dumps({
-                            "type": "ai_connected",
-                            "message": "外部AI已就绪"
+
+            # 等待客户端 identify（带超时）
+            identified = False
+            try:
+                raw = await asyncio.wait_for(websocket.recv(), timeout=10.0)
+                data = json.loads(raw) if isinstance(raw, str) else {}
+                if data.get('type') == 'identify' and data.get('role') in ('game', 'ai'):
+                    role = data['role']
+                    identified = True
+                    if role == 'game':
+                        if self.game_client and self.game_client != websocket:
+                            logger.warning("游戏客户端重复连接，替换旧连接")
+                        self.game_client = websocket
+                        logger.info(f"[game] 游戏端已注册: {client_addr}")
+                        await websocket.send(json.dumps({
+                            "type": "identified", "role": "game", "message": "身份确认为游戏端"
                         }))
-                    except:
-                        pass
-            
+                        # 如果 AI 已在线，通知游戏端
+                        if self.ai_client:
+                            await websocket.send(json.dumps({
+                                "type": "ai_connected", "message": "外部AI已在线"
+                            }))
+                    else:
+                        if self.ai_client and self.ai_client != websocket:
+                            logger.warning("AI 客户端重复连接，替换旧连接")
+                        self.ai_client = websocket
+                        self.use_builtin_ai = False
+                        logger.info(f"[ai] 外部AI已注册: {client_addr}")
+                        await websocket.send(json.dumps({
+                            "type": "identified", "role": "ai", "message": "身份确认为 AI"
+                        }))
+                        # 通知游戏端
+                        if self.game_client:
+                            try:
+                                await self.game_client.send(json.dumps({
+                                    "type": "ai_connected", "message": "外部AI已上线"
+                                }))
+                            except Exception:
+                                pass
+                else:
+                    await websocket.send(json.dumps({
+                        "type": "error",
+                        "message": f"无效的 identify 消息，需要 {{\"type\":\"identify\",\"role\":\"game|ai\"}}，收到: {data}"
+                    }))
+            except asyncio.TimeoutError:
+                await websocket.send(json.dumps({
+                    "type": "error", "message": "10秒内未收到 identify 消息，连接关闭"
+                }))
+            except json.JSONDecodeError:
+                await websocket.send(json.dumps({
+                    "type": "error", "message": "JSON 解析失败"
+                }))
+
+            if not identified:
+                logger.info(f"未通过身份验证，断开: {client_addr}")
+                return  # 不进入消息循环，直接退出
+
+            # 身份确认完毕，进入消息主循环
             async for message in websocket:
                 await self.handle_message(websocket, message)
-                
+
         except websockets.exceptions.ConnectionClosed as e:
             logger.info(f"连接关闭: {client_addr} - {e.code}: {e.reason}")
         except Exception as e:
@@ -166,11 +210,11 @@ class EWNServer:
         finally:
             if websocket == self.game_client:
                 self.game_client = None
-                logger.info("游戏客户端已断开")
+                logger.info("[game] 游戏端已断开")
             elif websocket == self.ai_client:
                 self.ai_client = None
                 self.use_builtin_ai = True
-                logger.info("外部AI客户端已断开，切换到内置AI")
+                logger.info("[ai] 外部AI已断开，切换到内置AI")
 
     async def handle_message(self, websocket: WebSocketServerProtocol, raw: str):
         """处理收到的消息"""
@@ -206,6 +250,10 @@ class EWNServer:
                     "game_connected": self.game_client is not None
                 }))
                 
+            elif msg_type == 'identify':
+                # identify 已在连接时处理，忽略后续重复的
+                logger.debug("收到重复 identify，已忽略")
+
             else:
                 logger.warning(f"未知消息类型: {msg_type}")
                 

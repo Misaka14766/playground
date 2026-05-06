@@ -10,6 +10,10 @@
 架构:
   游戏浏览器 <--WS--> ai_server.py <--WS--> 外部AI进程
 
+通过 WebSocket 路径区分客户端类型：
+  ws://host:port/game  → 游戏端（浏览器）
+  ws://host:port/ai    → 外部 AI 进程
+
 也可以使用内置简单AI（不需要外部进程）。
 """
 
@@ -117,7 +121,6 @@ class EWNServer:
         self.ai_client: Optional[WebSocketServerProtocol] = None
         self.pending_request: Optional[dict] = None
         self.use_builtin_ai = True  # 当没有外部AI时使用内置AI
-        self._pending_identify = {}  # ws -> 等待 identify 的标志
         self.stats = {
             'requests': 0,
             'responses': 0,
@@ -125,88 +128,86 @@ class EWNServer:
             'start_time': time.time()
         }
 
-    async def handle_connection(self, websocket: WebSocketServerProtocol, path: str = '/'):
+    async def handle_connection(self, websocket: WebSocketServerProtocol):
         """处理新的 WebSocket 连接
 
-        连接后客户端必须在 10 秒内发送 identify 消息声明身份：
-          {"type":"identify","role":"game"}   或   {"type":"identify","role":"ai"}
-        超时未声明则断开连接。
+        通过连接路径区分客户端类型（兼容 websockets >= 10.0）：
+          ws://host:port/game  → 游戏端（浏览器）
+          ws://host:port/ai    → 外部 AI 进程
         """
+        # websockets 10+ 的路径获取方式
+        path = getattr(websocket, 'path', None)
+        if path is None:
+            # websockets 16.0: 路径在 request 对象中
+            try:
+                path = websocket.request.path
+            except AttributeError:
+                path = '/'
+
         client_addr = websocket.remote_address
-        logger.info(f"新连接: {client_addr}")
+        logger.info(f"新连接: {client_addr} path={path}")
+
+        # 根据路径确定角色
+        role = None
+        if path.strip('/') == 'game':
+            role = 'game'
+        elif path.strip('/') == 'ai':
+            role = 'ai'
+
+        if not role:
+            await websocket.send(json.dumps({
+                "type": "error",
+                "message": f"未知路径: {path}，请使用 /game（游戏端）或 /ai（AI端）"
+            }))
+            logger.warning(f"拒绝未知路径连接: {path} from {client_addr}")
+            return
 
         try:
-            # 发送欢迎消息，要求客户端声明身份
-            await websocket.send(json.dumps({
-                "type": "connected",
-                "message": "已连接到爱恩斯坦棋AI服务，请发送 identify 消息声明身份",
-                "server_version": "2.0.0"
-            }))
-
-            # 等待客户端 identify（带超时）
-            identified = False
-            try:
-                raw = await asyncio.wait_for(websocket.recv(), timeout=10.0)
-                data = json.loads(raw) if isinstance(raw, str) else {}
-                if data.get('type') == 'identify' and data.get('role') in ('game', 'ai'):
-                    role = data['role']
-                    identified = True
-                    if role == 'game':
-                        if self.game_client and self.game_client != websocket:
-                            logger.warning("游戏客户端重复连接，替换旧连接")
-                        self.game_client = websocket
-                        logger.info(f"[game] 游戏端已注册: {client_addr}")
-                        await websocket.send(json.dumps({
-                            "type": "identified", "role": "game", "message": "身份确认为游戏端"
-                        }))
-                        # 如果 AI 已在线，通知游戏端
-                        if self.ai_client:
-                            await websocket.send(json.dumps({
-                                "type": "ai_connected", "message": "外部AI已在线"
-                            }))
-                    else:
-                        if self.ai_client and self.ai_client != websocket:
-                            logger.warning("AI 客户端重复连接，替换旧连接")
-                        self.ai_client = websocket
-                        self.use_builtin_ai = False
-                        logger.info(f"[ai] 外部AI已注册: {client_addr}")
-                        await websocket.send(json.dumps({
-                            "type": "identified", "role": "ai", "message": "身份确认为 AI"
-                        }))
-                        # 通知游戏端
-                        if self.game_client:
-                            try:
-                                await self.game_client.send(json.dumps({
-                                    "type": "ai_connected", "message": "外部AI已上线"
-                                }))
-                            except Exception:
-                                pass
-                else:
+            if role == 'game':
+                if self.game_client and self.game_client != websocket:
+                    logger.warning("游戏客户端重复连接，替换旧连接")
+                self.game_client = websocket
+                logger.info(f"[game] 游戏端已连接: {client_addr}")
+                await websocket.send(json.dumps({
+                    "type": "connected",
+                    "role": "game",
+                    "message": "已确认为游戏端",
+                    "server_version": "3.0.0"
+                }))
+                # 如果 AI 已在线，通知游戏端
+                if self.ai_client:
                     await websocket.send(json.dumps({
-                        "type": "error",
-                        "message": f"无效的 identify 消息，需要 {{\"type\":\"identify\",\"role\":\"game|ai\"}}，收到: {data}"
+                        "type": "ai_connected", "message": "外部AI已在线"
                     }))
-            except asyncio.TimeoutError:
+            else:  # ai
+                if self.ai_client and self.ai_client != websocket:
+                    logger.warning("AI 客户端重复连接，替换旧连接")
+                self.ai_client = websocket
+                self.use_builtin_ai = False
+                logger.info(f"[ai] 外部AI已连接: {client_addr}")
                 await websocket.send(json.dumps({
-                    "type": "error", "message": "10秒内未收到 identify 消息，连接关闭"
+                    "type": "connected",
+                    "role": "ai",
+                    "message": "已确认为AI端",
+                    "server_version": "3.0.0"
                 }))
-            except json.JSONDecodeError:
-                await websocket.send(json.dumps({
-                    "type": "error", "message": "JSON 解析失败"
-                }))
+                # 通知游戏端
+                if self.game_client:
+                    try:
+                        await self.game_client.send(json.dumps({
+                            "type": "ai_connected", "message": "外部AI已上线"
+                        }))
+                    except Exception:
+                        pass
 
-            if not identified:
-                logger.info(f"未通过身份验证，断开: {client_addr}")
-                return  # 不进入消息循环，直接退出
-
-            # 身份确认完毕，进入消息主循环
+            # 进入消息主循环
             async for message in websocket:
                 await self.handle_message(websocket, message)
 
         except websockets.exceptions.ConnectionClosed as e:
-            logger.info(f"连接关闭: {client_addr} - {e.code}: {e.reason}")
+            logger.info(f"连接关闭: {client_addr} ({role}) - {e.code}: {e.reason}")
         except Exception as e:
-            logger.error(f"连接处理错误: {e}")
+            logger.error(f"连接处理错误 ({role}): {e}")
         finally:
             if websocket == self.game_client:
                 self.game_client = None
@@ -250,13 +251,8 @@ class EWNServer:
                     "game_connected": self.game_client is not None
                 }))
                 
-            elif msg_type == 'identify':
-                # identify 已在连接时处理，忽略后续重复的
-                logger.debug("收到重复 identify，已忽略")
-
             else:
                 logger.warning(f"未知消息类型: {msg_type}")
-                
         except json.JSONDecodeError as e:
             logger.error(f"JSON解析错误: {e}")
             self.stats['errors'] += 1
@@ -307,7 +303,8 @@ class EWNServer:
         """启动服务器"""
         logger.info(f"启动爱恩斯坦棋AI服务: ws://{self.host}:{self.port}")
         logger.info("等待连接...")
-        logger.info("  - 游戏浏览器打开后会自动连接")
+        logger.info("  - 游戏端: ws://%s:%d/game", self.host, self.port)
+        logger.info("  - AI端:   ws://%s:%d/ai", self.host, self.port)
         logger.info("  - 运行 python ai_example.py 连接外部AI")
         logger.info("按 Ctrl+C 停止服务")
         

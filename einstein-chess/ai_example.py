@@ -249,57 +249,76 @@ class MyAI:
         """
         Minimax + Alpha-Beta 剪枝
         深度为 2（考虑己方和对手各 2 步）
+        带时间限制：单次决策不超过 3 秒
         """
         best_move = None
         best_score = float('-inf')
         alpha = float('-inf')
         beta = float('inf')
-        
+        self._search_start_time = time.time()
+        self._search_timeout = 3.0
+
         opp_color = 'red' if self.color == 'blue' else 'blue'
-        
+
         for move in valid_moves:
+            # 时间检查
+            if time.time() - self._search_start_time > self._search_timeout:
+                logger.info("Minimax 搜索超时，使用当前最佳走法")
+                break
+
             new_board = simulate_move(board, move)
-            
+
             # 检查是否获胜
             winner = check_win(new_board)
             if winner == self.color:
                 return move  # 直接获胜，立即走
-            
+
             # 评估这步后的局面
             score = self.negamax(new_board, depth - 1, alpha, beta, opp_color)
-            
+
             if score > best_score:
                 best_score = score
                 best_move = move
             alpha = max(alpha, score)
-        
+
         return best_move or valid_moves[0]
     
     def negamax(self, board: Board, depth: int, alpha: float, beta: float, color: str) -> float:
-        """Negamax 搜索（带 Alpha-Beta 剪枝）"""
+        """Negamax 搜索（带 Alpha-Beta 剪枝 + 时间限制）"""
+        # 时间限制检查
+        if time.time() - self._search_start_time > self._search_timeout:
+            return self.evaluate_board(board)
+
         winner = check_win(board)
         if winner:
             return 1000 if winner == self.color else -1000
-        
+
         if depth == 0:
             return self.evaluate_board(board)
-        
+
         # 模拟对手的所有可能骰子（1-6）
         worst_score = float('inf')
         for dice_val in range(1, 7):
+            # 时间检查（每个骰子值前检查一次）
+            if time.time() - self._search_start_time > self._search_timeout:
+                break
             moves = get_valid_moves(board, color, dice_val)
             if not moves:
                 continue
-            
+
             best_score = float('-inf')
             for move in moves:
                 new_board = simulate_move(board, move)
                 opp_color = 'red' if color == 'blue' else 'blue'
                 score = -self.negamax(new_board, depth - 1, -beta, -alpha, opp_color)
                 best_score = max(best_score, score)
-            
+
             worst_score = min(worst_score, best_score)
-        
+
+            # Beta 剪枝：如果当前最差分已经比 beta 差，不用继续试其他骰子
+            if worst_score <= alpha:
+                return worst_score
+
         return worst_score if worst_score != float('inf') else 0
     
     def evaluate_board(self, board: Board) -> float:

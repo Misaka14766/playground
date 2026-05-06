@@ -954,7 +954,9 @@
     "red_captured": [2,4],
     "blue_captured": [],
     "move_count": 12,
-    "time_left": {"red":210, "blue":195}
+    "time_left": {"red":210, "blue":195},
+    "time_limit": 240,
+    "current_time_remaining": 195
   }
 }</pre>
       </div>
@@ -979,6 +981,29 @@
   "message": "无法计算走法"
 }</pre>
       </div>
+    </div>
+  </div>
+
+  <div style="background:var(--bg2);border-radius:16px;padding:24px;border:1px solid var(--border);margin-bottom:20px;">
+    <h3 style="font-size:16px;margin-bottom:12px;">⏱ 时间管理</h3>
+    <div class="rules-content">
+      <p>外部 AI <strong>没有响应超时限制</strong>，时间完全由游戏端管理：</p>
+      <ul>
+        <li><strong>game_start</strong> — 游戏开局时发送，含每方总时间（默认 240 秒）</li>
+        <li><strong>move_request</strong> — 每步走棋请求中含 <code>current_time_remaining</code>（当前方剩余秒数）</li>
+        <li>外部 AI 自行控制思考时长，合理分配时间</li>
+        <li>若 AI 一直不返回走棋，游戏计时器耗尽后将<strong>自动判负</strong></li>
+        <li>AI 返回响应后若游戏已结束（超时判负等），该响应会被忽略</li>
+      </ul>
+      <pre style="background:var(--bg3);border-radius:10px;padding:14px;font-size:12px;color:#a5d6a7;overflow:auto;border:1px solid var(--border);margin-top:12px;">// game_start 消息（开局时发送一次）
+{
+  "type": "game_start",
+  "mode": "ext",
+  "time_limit": 240,
+  "red_name": "玩家一",
+  "blue_name": "外部AI",
+  "first_player": "red"
+}</pre>
     </div>
   </div>
 
@@ -1601,8 +1626,10 @@ function startGame() {
   // If first player is AI
   if (mode === 'ava') {
     setTimeout(() => aiTakeTurn(), 800);
-  } else if (mode === 'ext' && diff === 'external') {
+  } else if (mode === 'ext') {
     connectExternalAI();
+    // 通知外部AI游戏开始（含总时间等信息）
+    setTimeout(() => sendGameStartToExternalAI(), 500);
   }
 }
 
@@ -1891,6 +1918,10 @@ function connectExternalAI() {
       updateAIStatusUI('connected', '外部AI已连接');
       addLog('外部AI已连接 (ws://localhost:8765)', 'system');
       showToast('🔌 外部AI已连接');
+      // 如果游戏已在进行中，发送 game_start 通知
+      if (gameState.mode === 'ext' && gameState.phase !== 'ended') {
+        setTimeout(() => sendGameStartToExternalAI(), 300);
+      }
     };
     extWs.onmessage = (event) => {
       try {
@@ -1921,6 +1952,21 @@ function connectExternalAI() {
   }
 }
 
+function sendGameStartToExternalAI() {
+  if (!extWs || extWs.readyState !== WebSocket.OPEN) return;
+  if (gameState.phase === 'ended') return;
+  const payload = {
+    type: 'game_start',
+    mode: gameState.mode,
+    time_limit: (gameState.timeLimit || 4) * 60, // 每方总秒数
+    red_name: gameState.redName,
+    blue_name: gameState.blueName,
+    first_player: gameState.currentPlayer
+  };
+  extWs.send(JSON.stringify(payload));
+  addLog('已向外部AI发送游戏开始通知（总时间: ' + (gameState.timeLimit || 4) + '分钟/方）', 'system');
+}
+
 function requestExternalAIMove() {
   if (!extWs || extWs.readyState !== WebSocket.OPEN) {
     // Fallback to built-in AI
@@ -1928,13 +1974,14 @@ function requestExternalAIMove() {
     setTimeout(() => {
       const move = aiGetMove(gameState.board, gameState.currentPlayer, gameState.diceValue, 'medium');
       setAIThinking(false);
-      if (move) executeMove(move);
+      if (move && gameState.phase !== 'ended') executeMove(move);
     }, 500);
     return;
   }
 
   updateAIStatusUI('thinking', '外部AI思考中...');
   const moves = gameState.validMoves;
+  const currentTimer = gameState.currentPlayer === 'red' ? gameState.redTimer : gameState.blueTimer;
   const payload = {
     type: 'move_request',
     board: gameState.board,
@@ -1950,19 +1997,14 @@ function requestExternalAIMove() {
       red_captured: gameState.capturedByRed,
       blue_captured: gameState.capturedByBlue,
       move_count: gameState.moveCount,
-      time_left: {red: gameState.redTimer, blue: gameState.blueTimer}
+      time_left: { red: gameState.redTimer, blue: gameState.blueTimer },
+      time_limit: (gameState.timeLimit || 4) * 60, // 总时限（秒），供外部AI做时间规划
+      current_time_remaining: currentTimer          // 当前走棋方剩余秒数
     }
   };
 
-  const timeout = setTimeout(() => {
-    pendingResolve = null;
-    updateAIStatusUI('error', '响应超时，使用内置AI');
-    const move = aiGetMove(gameState.board, gameState.currentPlayer, gameState.diceValue, 'medium');
-    if (move) executeMove(move);
-  }, 15000);
-
   pendingResolve = (response) => {
-    clearTimeout(timeout);
+    if (gameState.phase === 'ended') return; // 游戏已结束（超时判负等）忽略迟到的响应
     let selectedMove = null;
     if (response.move_index !== undefined) {
       selectedMove = moves[response.move_index];

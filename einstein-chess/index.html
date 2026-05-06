@@ -926,7 +926,8 @@
     <p style="font-size:13px;color:var(--text2);margin-bottom:12px;">需要先启动 AI 中继服务（<code style="background:var(--bg3);padding:2px 6px;border-radius:4px;">ai_server.py</code>），然后在游戏中选择「外部AI」模式</p>
     <div style="background:var(--bg3);border-radius:10px;padding:16px;font-family:monospace;font-size:13px;border:1px solid rgba(156,39,176,0.3);">
       <div style="color:#ce93d8;">WebSocket 服务地址：</div>
-      <div style="color:#a5d6a7;margin-top:4px;">ws://localhost:8765</div>
+      <div style="color:#a5d6a7;margin-top:4px;">游戏端: ws://localhost:8765/game</div>
+      <div style="color:#a5d6a7;margin-top:4px;">AI端:   ws://localhost:8765/ai</div>
       <div style="color:#ce93d8;margin-top:12px;">HTTP API（备选）：</div>
       <div style="color:#a5d6a7;margin-top:4px;">http://localhost:8765/move</div>
     </div>
@@ -1913,12 +1914,10 @@ let pendingResolve = null;
 function connectExternalAI() {
   updateAIStatusUI('connecting', '正在连接外部AI...');
   try {
-    extWs = new WebSocket('ws://localhost:8765');
+    extWs = new WebSocket('ws://localhost:8765/game');
     extWs.onopen = () => {
-      // 主动声明身份为游戏端
-      extWs.send(JSON.stringify({type: 'identify', role: 'game'}));
       updateAIStatusUI('connected', '外部AI已连接');
-      addLog('外部AI已连接 (ws://localhost:8765)', 'system');
+      addLog('外部AI已连接 (ws://localhost:8765/game)', 'system');
       showToast('🔌 外部AI已连接');
       // 如果游戏已在进行中，发送 game_start 通知
       if (gameState.mode === 'ext' && gameState.phase !== 'ended') {
@@ -1932,8 +1931,6 @@ function connectExternalAI() {
           pendingResolve(data);
           pendingResolve = null;
           updateAIStatusUI('connected', '外部AI已连接');
-        } else if (data.type === 'identified') {
-          addLog(`身份确认: ${data.role}`, 'system');
         } else if (data.type === 'ai_connected') {
           addLog('外部AI已上线', 'system');
           updateAIStatusUI('connected', '外部AI已就绪');

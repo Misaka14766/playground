@@ -10,7 +10,7 @@
   3. 运行此文件: python ai_example.py
 
 协议说明:
-  - 连接到 ws://localhost:8765
+  - 连接到 ws://localhost:8765/ai
   - 接收 move_request 消息，解析棋盘和合法走法
   - 返回 move_response 消息，指定要走的棋步
 
@@ -23,8 +23,7 @@ import random
 import logging
 import sys
 import time
-import math
-from typing import Optional, List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple
 
 try:
     import websockets
@@ -152,73 +151,67 @@ def board_to_str(board: Board) -> str:
 class MyAI:
     """
     示例 AI 实现
-    
+
     您可以修改 choose_move 方法来实现自己的策略。
-    目前实现了三种策略：
+    目前实现了两种策略：
     - random_move: 随机选择
     - greedy_move: 贪心策略（优先吃子和前进）
-    - minimax_move: 简单的 Minimax 搜索（带 Alpha-Beta 剪枝）
-    
-    切换策略：修改 choose_move 中的调用
+
+    切换策略：使用 --strategy 参数或修改 choose_move 中的调用
     """
-    
-    def __init__(self, color: str = 'blue', strategy: str = 'minimax'):
+
+    def __init__(self, color: str = 'blue', strategy: str = 'greedy'):
         self.color = color
         self.strategy = strategy
         self.move_count = 0
         self.time_limit = 240       # 每方总时间（秒），由 game_start 设置
         self.time_remaining = 240   # 当前方剩余时间（秒），由 move_request 更新
         logger.info(f"AI 初始化: 颜色={color}, 策略={strategy}")
-    
+
     def choose_move(self, state: GameState, valid_moves: List[Move]) -> Move:
         """
         核心决策函数 - 选择最优走法
-        
+
         参数:
             state: 完整游戏状态，包含棋盘、骰子、被吃棋子等信息
             valid_moves: 当前合法走法列表（已由服务器提供）
-        
+
         返回:
             选中的走法
         """
         self.move_count += 1
         board = state['board']
-        dice = state['dice']
-        
+
         if not valid_moves:
             return None
-        
+
         if self.strategy == 'random':
             return self.random_move(valid_moves)
-        elif self.strategy == 'greedy':
-            return self.greedy_move(board, valid_moves)
-        elif self.strategy == 'minimax':
-            return self.minimax_move(board, valid_moves, dice)
         else:
             return self.greedy_move(board, valid_moves)
-    
+
     def random_move(self, valid_moves: List[Move]) -> Move:
         """随机策略"""
         return random.choice(valid_moves)
-    
+
     def greedy_move(self, board: Board, valid_moves: List[Move]) -> Move:
         """贪心策略：评估每步走法，选分数最高的"""
         best_move = None
         best_score = float('-inf')
-        
+
         for move in valid_moves:
             score = self.evaluate_position(board, move)
             if score > best_score:
                 best_score = score
                 best_move = move
-        
+
         return best_move or valid_moves[0]
-    
+
     def evaluate_position(self, board: Board, move: Move) -> float:
         """评估走法分数"""
         tr, tc = move['to']
         score = 0.0
-        
+
         # 吃子奖励
         target = board[tr][tc]
         if target:
@@ -226,7 +219,7 @@ class MyAI:
                 score += 50  # 吃对方子：大奖励
             else:
                 score -= 10  # 吃自己：轻微惩罚（有时也是好策略）
-        
+
         # 位置价值
         if self.color == 'blue':
             # 蓝方目标：(0,0)，越靠近越好
@@ -240,127 +233,11 @@ class MyAI:
             score += (8 - dist_to_goal) * 4
             if tr == 4 and tc == 4:
                 score += 1000
-        
+
         # 棋子价值（小号棋子更难替代）
         piece_id = move.get('piece_id', 3)
         score += (7 - piece_id) * 1.5
-        
-        return score
-    
-    def minimax_move(self, board: Board, valid_moves: List[Move], dice: int, depth: int = 2) -> Move:
-        """
-        Minimax + Alpha-Beta 剪枝
-        深度为 2（考虑己方和对手各 2 步）
-        带时间限制：单次决策不超过 3 秒
-        """
-        best_move = None
-        best_score = float('-inf')
-        alpha = float('-inf')
-        beta = float('inf')
-        self._search_start_time = time.time()
-        # 动态超时：剩余时间越少，给的时间比例越高（避免最后时刻算太久）
-        # 一般每步分配 time_remaining / 30 ~ max(1s, time_remaining / 10) 的思考时间
-        if hasattr(self, 'time_remaining') and self.time_remaining > 0:
-            budget = self.time_remaining / 25.0
-            search_timeout = max(0.5, min(budget, 5.0))  # 0.5s ~ 5s
-        else:
-            search_timeout = 3.0
-        self._search_timeout = search_timeout
 
-        opp_color = 'red' if self.color == 'blue' else 'blue'
-
-        for move in valid_moves:
-            # 时间检查
-            if time.time() - self._search_start_time > self._search_timeout:
-                logger.info("Minimax 搜索超时，使用当前最佳走法")
-                break
-
-            new_board = simulate_move(board, move)
-
-            # 检查是否获胜
-            winner = check_win(new_board)
-            if winner == self.color:
-                return move  # 直接获胜，立即走
-
-            # 评估这步后的局面
-            score = self.negamax(new_board, depth - 1, alpha, beta, opp_color)
-
-            if score > best_score:
-                best_score = score
-                best_move = move
-            alpha = max(alpha, score)
-
-        return best_move or valid_moves[0]
-    
-    def negamax(self, board: Board, depth: int, alpha: float, beta: float, color: str) -> float:
-        """Negamax 搜索（带 Alpha-Beta 剪枝 + 时间限制）"""
-        # 时间限制检查
-        if time.time() - self._search_start_time > self._search_timeout:
-            return self.evaluate_board(board)
-
-        winner = check_win(board)
-        if winner:
-            return 1000 if winner == self.color else -1000
-
-        if depth == 0:
-            return self.evaluate_board(board)
-
-        # 模拟对手的所有可能骰子（1-6）
-        worst_score = float('inf')
-        for dice_val in range(1, 7):
-            # 时间检查（每个骰子值前检查一次）
-            if time.time() - self._search_start_time > self._search_timeout:
-                break
-            moves = get_valid_moves(board, color, dice_val)
-            if not moves:
-                continue
-
-            best_score = float('-inf')
-            for move in moves:
-                new_board = simulate_move(board, move)
-                opp_color = 'red' if color == 'blue' else 'blue'
-                score = -self.negamax(new_board, depth - 1, -beta, -alpha, opp_color)
-                best_score = max(best_score, score)
-
-            worst_score = min(worst_score, best_score)
-
-            # Beta 剪枝：如果当前最差分已经比 beta 差，不用继续试其他骰子
-            if worst_score <= alpha:
-                return worst_score
-
-        return worst_score if worst_score != float('inf') else 0
-    
-    def evaluate_board(self, board: Board) -> float:
-        """评估棋盘整体局面"""
-        score = 0.0
-        opp_color = 'red' if self.color == 'blue' else 'blue'
-        
-        my_pieces = find_pieces(board, self.color)
-        opp_pieces = find_pieces(board, opp_color)
-        
-        # 棋子数量优势
-        score += (len(my_pieces) - len(opp_pieces)) * 15
-        
-        # 前进位置评估
-        if self.color == 'blue':
-            # 我方：距离 (0,0) 越近越好
-            my_progress = sum(r + c for r, c, _ in my_pieces)
-            opp_progress = sum((4-r) + (4-c) for r, c, _ in opp_pieces)
-        else:
-            my_progress = sum((4-r) + (4-c) for r, c, _ in my_pieces)
-            opp_progress = sum(r + c for r, c, _ in opp_pieces)
-        
-        # 领先棋子（距目标最近）
-        if my_pieces:
-            if self.color == 'blue':
-                min_dist = min(r + c for r, c, _ in my_pieces)
-            else:
-                min_dist = min((4-r) + (4-c) for r, c, _ in my_pieces)
-            score += (8 - min_dist) * 5
-        
-        score -= my_progress * 0.5
-        score += opp_progress * 0.3
-        
         return score
 
 
@@ -369,7 +246,7 @@ class MyAI:
 # ============================================================
 
 class ExternalAIClient:
-    def __init__(self, server_url: str = 'ws://localhost:8765', color: str = 'blue'):
+    def __init__(self, server_url: str = 'ws://localhost:8765/ai', color: str = 'blue'):
         self.server_url = server_url
         self.color = color
         self.ai = MyAI(color=color, strategy='minimax')
@@ -393,9 +270,8 @@ class ExternalAIClient:
                 ) as ws:
                     self.connected = True
                     reconnect_delay = 1
-                    # 主动声明身份为 AI
-                    await ws.send(json.dumps({"type": "identify", "role": "ai"}))
-                    logger.info(f"已连接到服务器，身份: AI")
+                    # 路径 /ai 已标识身份，无需额外握手
+                    logger.info(f"已连接到服务器 (路径: /ai)")
                     
                     async for message in ws:
                         await self.handle_message(ws, message)
@@ -525,10 +401,10 @@ class ExternalAIClient:
 async def main():
     import argparse
     parser = argparse.ArgumentParser(description='爱恩斯坦棋外部AI示例')
-    parser.add_argument('--server', default='ws://localhost:8765', help='服务器地址')
+    parser.add_argument('--server', default='ws://localhost:8765/ai', help='服务器地址')
     parser.add_argument('--color', default='blue', choices=['red', 'blue'], help='棋子颜色')
-    parser.add_argument('--strategy', default='minimax',
-                       choices=['random', 'greedy', 'minimax'], help='AI策略')
+    parser.add_argument('--strategy', default='greedy',
+                       choices=['random', 'greedy'], help='AI策略')
     args = parser.parse_args()
     
     print("=" * 60)

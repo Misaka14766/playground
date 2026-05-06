@@ -393,7 +393,9 @@ class ExternalAIClient:
                 ) as ws:
                     self.connected = True
                     reconnect_delay = 1
-                    logger.info(f"已连接到服务器！等待游戏请求...")
+                    # 主动声明身份为 AI
+                    await ws.send(json.dumps({"type": "identify", "role": "ai"}))
+                    logger.info(f"已连接到服务器，身份: AI")
                     
                     async for message in ws:
                         await self.handle_message(ws, message)

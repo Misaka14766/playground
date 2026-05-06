@@ -1959,7 +1959,7 @@ function requestExternalAIMove() {
     updateAIStatusUI('error', '响应超时，使用内置AI');
     const move = aiGetMove(gameState.board, gameState.currentPlayer, gameState.diceValue, 'medium');
     if (move) executeMove(move);
-  }, 5000);
+  }, 15000);
 
   pendingResolve = (response) => {
     clearTimeout(timeout);

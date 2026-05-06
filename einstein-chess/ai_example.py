@@ -166,6 +166,8 @@ class MyAI:
         self.color = color
         self.strategy = strategy
         self.move_count = 0
+        self.time_limit = 240       # 每方总时间（秒），由 game_start 设置
+        self.time_remaining = 240   # 当前方剩余时间（秒），由 move_request 更新
         logger.info(f"AI 初始化: 颜色={color}, 策略={strategy}")
     
     def choose_move(self, state: GameState, valid_moves: List[Move]) -> Move:
@@ -256,7 +258,14 @@ class MyAI:
         alpha = float('-inf')
         beta = float('inf')
         self._search_start_time = time.time()
-        self._search_timeout = 3.0
+        # 动态超时：剩余时间越少，给的时间比例越高（避免最后时刻算太久）
+        # 一般每步分配 time_remaining / 30 ~ max(1s, time_remaining / 10) 的思考时间
+        if hasattr(self, 'time_remaining') and self.time_remaining > 0:
+            budget = self.time_remaining / 25.0
+            search_timeout = max(0.5, min(budget, 5.0))  # 0.5s ~ 5s
+        else:
+            search_timeout = 3.0
+        self._search_timeout = search_timeout
 
         opp_color = 'red' if self.color == 'blue' else 'blue'
 
@@ -417,7 +426,13 @@ class ExternalAIClient:
             if msg_type == 'connected':
                 role = data.get('role', 'unknown')
                 logger.info(f"服务器确认连接，角色: {role}")
-                
+
+            elif msg_type == 'game_start':
+                # 接收游戏开始通知（总时间等信息）
+                self.ai.time_limit = data.get('time_limit', 240)
+                self.ai.time_remaining = self.ai.time_limit
+                logger.info(f"游戏开始! 每方时间: {self.ai.time_limit}秒, 先手: {data.get('first_player')}")
+
             elif msg_type == 'move_request':
                 await self.handle_move_request(ws, data)
                 
@@ -444,6 +459,12 @@ class ExternalAIClient:
         current_player = data.get('current_player')
         valid_moves = data.get('valid_moves', [])
         game_state_info = data.get('game_state', {})
+
+        # 更新剩余时间信息
+        if 'current_time_remaining' in game_state_info:
+            self.ai.time_remaining = game_state_info['current_time_remaining']
+        if 'time_limit' in game_state_info:
+            self.ai.time_limit = game_state_info['time_limit']
         
         logger.info(f"收到请求: 玩家={current_player}, 骰子={dice}, "
                    f"可选走法={len(valid_moves)}, 手数={game_state_info.get('move_count',0)}")

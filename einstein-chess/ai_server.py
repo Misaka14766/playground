@@ -41,72 +41,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# 内置简单 AI (备用)
-# ============================================================
-
-def built_in_ai_move(state: dict) -> dict:
-    """内置简单 AI：贪心策略，优先吃子和推进"""
-    valid_moves = state.get('valid_moves', [])
-    if not valid_moves:
-        return {"type": "error", "message": "无可用走法"}
-
-    board = state.get('board', [])
-    current_player = state.get('current_player', 'blue')
-
-    best_move = None
-    best_score = float('-inf')
-
-    for move in valid_moves:
-        score = evaluate_move(board, move, current_player)
-        if score > best_score:
-            best_score = score
-            best_move = move
-
-    if best_move:
-        return {
-            "type": "move_response",
-            "piece_id": best_move.get('piece_id'),
-            "from": best_move.get('from'),
-            "to": best_move.get('to'),
-            "move_index": best_move.get('index', 0)
-        }
-
-    import random
-    move = random.choice(valid_moves)
-    return {
-        "type": "move_response",
-        "move_index": move.get('index', 0)
-    }
-
-
-def evaluate_move(board: list, move: dict, color: str) -> float:
-    """评估走法分数"""
-    from_pos = move.get('from', [0, 0])
-    to_pos = move.get('to', [0, 0])
-    score = 0.0
-
-    tr, tc = to_pos
-    if 0 <= tr < 5 and 0 <= tc < 5 and board:
-        target = board[tr][tc] if tr < len(board) and tc < len(board[tr]) else None
-        if target:
-            if target.get('color') != color:
-                score += 60
-            else:
-                score -= 15
-
-    if color == 'blue':
-        score += (4 - tr) * 3 + (4 - tc) * 3
-        if tr == 0 and tc == 0:
-            score += 500
-    else:
-        score += tr * 3 + tc * 3
-        if tr == 4 and tc == 4:
-            score += 500
-
-    return score
-
-
-# ============================================================
 # WebSocket 服务器 v5.0 (AI通用池)
 # ============================================================
 
@@ -126,10 +60,8 @@ class EWNServer:
         # {'red': {'backend': 'external', 'external_ai_id': 'ai-xxx'}, ...}
         self.player_backends: Dict[str, dict] = {
             'red': {'backend': 'human'},
-            'blue': {'backend': 'builtin'},
+            'blue': {'backend': 'human'},
         }
-        # 内置AI难度
-        self.builtin_difficulty: Dict[str, str] = {'red': 'medium', 'blue': 'medium'}
 
         # 挂起的请求：request_id -> {data, timestamp, color, resolve_fn}
         self.pending_requests: Dict[str, dict] = {}
@@ -304,9 +236,6 @@ class EWNServer:
                     'difficulty': c_cfg.get('difficulty'),
                     'external_ai_id': c_cfg.get('external_ai_id'),
                 }
-                diff = c_cfg.get('difficulty')
-                if diff:
-                    self.builtin_difficulty[color] = diff
 
         red_b = self.player_backends.get('red', {}).get('backend', '?')
         blue_b = self.player_backends.get('blue', {}).get('backend', '?')
@@ -346,30 +275,15 @@ class EWNServer:
                 except Exception as e:
                     logger.error(f"转发给AI({target_ai_id})失败: {e}")
 
-            # 外部AI不可用，回退到内置AI
+            # 外部AI不可用
             target_name = ai_info.get('name', target_ai_id) if ai_info else target_ai_id or '?'
-            logger.warning(f"{current_player}方外部AI({target_name})不可用，回退到内置AI")
-            await self._use_builtin_fallback(data, current_player)
+            logger.error(f"{current_player}方外部AI({target_name})不可用")
 
         elif backend == 'builtin':
-            await self._use_builtin_fallback(data, current_player)
+            logger.warning(f"{current_player}方配置为内置AI，但服务器仅作中继，内置AI在前端执行")
 
         else:
             logger.debug(f"{current_player} 配置为 human/backend={backend}，忽略 move_request")
-
-    async def _use_builtin_fallback(self, data: dict, color: str):
-        """使用内置AI生成走棋"""
-        difficulty = self.builtin_difficulty.get(color, 'medium')
-        logger.info(f"使用内置AI({difficulty})生成{color}方走棋...")
-        await asyncio.sleep(0.2 + __import__('random').random() * 0.3)
-        response = built_in_ai_move(data)
-        if self.game_client:
-            try:
-                await self.game_client.send(json.dumps(response))
-                logger.info(f"内置AI({difficulty})走棋: {response}")
-                self.stats['responses'] += 1
-            except Exception as e:
-                logger.error(f"发送内置AI响应失败: {e}")
 
     # ==================== AI 端消息处理 ====================
 
@@ -443,9 +357,11 @@ class EWNServer:
         if request_id and request_id in self.pending_requests:
             pending = self.pending_requests.pop(request_id)
         else:
-            # 回退：取最早的 pending
+            # 回退：取最早的 pending（兼容 Python 3.7 以下版本）
             if self.pending_requests:
-                _, pending = self.pending_requests.popitem(last=False)
+                # 获取第一个key（Python 3.7+字典保持插入顺序）
+                first_key = next(iter(self.pending_requests.keys()))
+                pending = self.pending_requests.pop(first_key)
 
         if self.game_client:
             try:

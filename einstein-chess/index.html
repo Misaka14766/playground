@@ -1598,7 +1598,7 @@ function selectDiff(color, diff) {
   uiSelection[color].difficulty = diff;
   const row = document.getElementById(color + 'BuiltinOptions').querySelector('.diff-row');
   row.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('selected-diff'));
-  const btn = row.querySelector(`.diff-${diff}`);
+  const btn = row.querySelector(`.diff-btn.${diff}`);
   if (btn) btn.classList.add('selected-diff');
 }
 
@@ -1734,8 +1734,8 @@ function startGame() {
   closeNewGame();
   showToast(`游戏开始！${redName} (红) 先手`);
 
-  // If first player is AI
-  if (shouldAIMove()) setTimeout(() => executeAIMove(), 800);
+  // 如果第一个玩家是AI，自动执行AI回合（包括掷骰子和移动）
+  if (shouldAIMove()) setTimeout(() => executeAITurn(), 800);
 
   // Connect to server and send config
   connectToServerAndConfigure();
@@ -1816,13 +1816,24 @@ function onDiceRolled() {
   if (moves.length === 0) { addLog('无可用走法，跳过回合', 'system'); setTimeout(endTurn, 1000); return; }
   updateStatus(); renderBoard(); updatePlayerCards();
 
-  if (shouldAIMove()) setTimeout(() => executeAIMove(), 600);
+  if (shouldAIMove()) setTimeout(() => executeAITurn(), 600);
 }
 
 // v4 core: check current player's controller config
 function shouldAIMove() {
   const ctrl = gameState.playerConfig[gameState.currentPlayer];
   return ctrl.backend !== 'human';
+}
+
+// v4 core: 执行完整的AI回合（掷骰子 + 移动）
+function executeAITurn() {
+  if (gameState.phase === 'rolling') {
+    // AI自动掷骰子
+    rollDice();
+  } else if (gameState.phase === 'moving') {
+    // AI执行移动
+    executeAIMove();
+  }
 }
 
 // v4 core: dispatch to correct backend
@@ -1920,7 +1931,7 @@ function endTurn() {
   document.getElementById('diceDisplay').textContent = '🎲';
   document.getElementById('diceLabel').textContent = '等待投骰子';
   updateStatus(); updatePlayerCards(); renderBoard();
-  if (shouldAIMove()) setTimeout(() => rollDice(), 500);
+  if (shouldAIMove()) setTimeout(() => executeAITurn(), 500);
 }
 
 function undoMove() {
@@ -2043,7 +2054,7 @@ function handleServerMessage(data) {
       gameState.availableAIs = data.ais || [];
       renderAILists();
       if (data.ais && data.ais.length > 0) {
-        const names = data.ais.map(a => `${a.name}(${a.color})`).join(', ');
+        const names = data.ais.map(a => `${a.name}(${a.strategy})`).join(', ');
         addLog(`在线AI更新: ${names}`, 'system');
       }
       break;
@@ -2052,7 +2063,7 @@ function handleServerMessage(data) {
       if (data.ai_clients && data.ai_clients.length > 0) {
         gameState.availableAIs = data.ai_clients;
         renderAILists();
-        const names = data.ai_clients.map(a => `${a.name}(${a.color})`).join(', ');
+        const names = data.ai_clients.map(a => `${a.name}(${a.strategy})`).join(', ');
         addLog(`在线AI: ${names}`, 'system');
       }
       break;
@@ -2173,11 +2184,37 @@ function setAIThinking(thinking, color) {
 // UI HELPERS
 // ============================================================
 function openNewGame() {
-  // Refresh AI lists before showing modal
-  if (extWs && extWs.readyState === WebSocket.OPEN) {
+  // 确保WebSocket连接并获取AI列表（修复：在显示模态框前先连接）
+  ensureServerConnection();
+  document.getElementById('newGameModal').classList.add('show');
+}
+
+function ensureServerConnection() {
+  if (!extWs || extWs.readyState !== WebSocket.OPEN) {
+    extWs = new WebSocket('ws://localhost:8765/game');
+    
+    extWs.onopen = () => {
+      addLog('已连接到AI中继服务器 (v5)', 'system');
+      extWs.send(JSON.stringify({ type: 'stats' }));
+    };
+    
+    extWs.onmessage = (event) => {
+      try { handleServerMessage(JSON.parse(event.data)); }
+      catch(e) { console.error('Server msg parse error:', e); }
+    };
+    
+    extWs.onerror = () => {
+      addLog('服务器连接失败', 'system');
+    };
+    
+    extWs.onclose = () => {
+      if (gameState.phase !== 'ended') {
+        addLog('服务器连接断开', 'system');
+      }
+    };
+  } else {
     extWs.send(JSON.stringify({ type: 'stats' }));
   }
-  document.getElementById('newGameModal').classList.add('show');
 }
 function closeNewGame() { document.getElementById('newGameModal').classList.remove('show'); }
 function closeWin() { document.getElementById('winOverlay').classList.remove('show'); }
@@ -2190,7 +2227,11 @@ function showView(view) {
   document.querySelectorAll('.nav-btn').forEach(b => { b.classList.toggle('active', b.dataset.view===view); });
   // Elastic nav: center active button
   requestAnimationFrame(() => recenterNav());
-  if (view === 'ais') renderAIStatusView();
+  if (view === 'ais') {
+    // 确保WebSocket连接后再渲染AI状态
+    ensureServerConnection();
+    renderAIStatusView();
+  }
 }
 
 // ===== Elastic Navigation Bar (Dock-style) =====
@@ -2282,7 +2323,7 @@ function renderAIStatusView() {
   empty.style.display = 'none';
   grid.innerHTML = '';
 
-  const now = time.time ? Date.now() / 1000 : Date.now() / 1000;
+  const now = Date.now() / 1000;
 
   ais.forEach(ai => {
     const connectedAt = ai.connected_at || now;

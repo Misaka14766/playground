@@ -23,7 +23,7 @@ import random
 import logging
 import sys
 import time
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 
 try:
     import websockets
@@ -246,21 +246,23 @@ class MyAI:
 # ============================================================
 
 class ExternalAIClient:
-    def __init__(self, server_url: str = 'ws://localhost:8765/ai', color: str = 'blue'):
+    def __init__(self, server_url: str = 'ws://localhost:8765/ai',
+                 strategy: str = 'greedy'):
         self.server_url = server_url
-        self.color = color
-        self.ai = MyAI(color=color, strategy='minimax')
+        self.strategy_name = strategy
+        self.ai = MyAI(strategy=strategy)
         self.connected = False
+        self.ai_id = None
         self.total_moves = 0
         self.total_time = 0.0
-    
+
     async def connect(self):
-        """连接到服务器并处理消息"""
+        """连接到服务器并处理消息 (v5: 不预声明颜色，入通用池)"""
         logger.info(f"正在连接到: {self.server_url}")
-        
+
         reconnect_delay = 1
         max_delay = 30
-        
+
         while True:
             try:
                 async with websockets.connect(
@@ -270,28 +272,38 @@ class ExternalAIClient:
                 ) as ws:
                     self.connected = True
                     reconnect_delay = 1
-                    # 路径 /ai 已标识身份，无需额外握手
-                    logger.info(f"已连接到服务器 (路径: /ai)")
-                    
+                    logger.info(f"已连接到服务器")
+
+                    # v5: 发送 register 消息（不再声明颜色）
+                    await ws.send(json.dumps({
+                        "type": "register",
+                        "name": f"{self.strategy_name.capitalize()}AI",
+                        "strategy": self.strategy_name,
+                    }))
+                    logger.info(f"已发送 register 消息: strategy={self.strategy_name}")
+
                     async for message in ws:
                         await self.handle_message(ws, message)
-                        
+
             except websockets.exceptions.ConnectionRefused:
                 self.connected = False
+                self.ai_id = None
                 logger.warning(f"无法连接服务器，{reconnect_delay}秒后重试...")
                 await asyncio.sleep(reconnect_delay)
                 reconnect_delay = min(reconnect_delay * 2, max_delay)
-                
+
             except websockets.exceptions.ConnectionClosed:
                 self.connected = False
+                self.ai_id = None
                 logger.info(f"连接断开，{reconnect_delay}秒后重连...")
                 await asyncio.sleep(reconnect_delay)
-                
+
             except KeyboardInterrupt:
                 logger.info("AI 已停止")
                 break
             except Exception as e:
                 self.connected = False
+                self.ai_id = None
                 logger.error(f"连接错误: {e}")
                 await asyncio.sleep(reconnect_delay)
     
@@ -300,10 +312,20 @@ class ExternalAIClient:
         try:
             data = json.loads(raw)
             msg_type = data.get('type', '')
-            
+
             if msg_type == 'connected':
                 role = data.get('role', 'unknown')
                 logger.info(f"服务器确认连接，角色: {role}")
+
+            elif msg_type == 'registered':
+                # v5: 注册成功确认
+                self.ai_id = data.get('ai_id', '?')
+                logger.info(f"注册成功! ID={self.ai_id}, 消息={data.get('message','')}")
+
+            elif msg_type == 'displaced':
+                # v4: 被同颜色新AI替换
+                logger.warning(f"⚠ 被服务器踢出: {data.get('message','')}")
+                return  # 将导致重连
 
             elif msg_type == 'game_start':
                 # 接收游戏开始通知（总时间等信息）
@@ -400,25 +422,25 @@ class ExternalAIClient:
 
 async def main():
     import argparse
-    parser = argparse.ArgumentParser(description='爱恩斯坦棋外部AI示例')
-    parser.add_argument('--server', default='ws://localhost:8765/ai', help='服务器地址')
-    parser.add_argument('--color', default='blue', choices=['red', 'blue'], help='棋子颜色')
+    parser = argparse.ArgumentParser(description='爱恩斯坦棋外部AI示例 (v5)')
+    parser.add_argument('--server', default='ws://localhost:8765/ai',
+                       help='服务器地址 (如 ws://localhost:8765/ai)')
     parser.add_argument('--strategy', default='greedy',
                        choices=['random', 'greedy'], help='AI策略')
     args = parser.parse_args()
-    
+
+    server_url = args.server.rstrip('/')
+
     print("=" * 60)
-    print("  爱恩斯坦棋 外部AI示例")
+    print("  爱恩斯坦棋 外部AI示例 v5 (通用池)")
     print("=" * 60)
-    print(f"  服务器: {args.server}")
-    print(f"  颜色: {args.color}")
-    print(f"  策略: {args.strategy}")
+    print(f"  服务器: {server_url}")
+    print(f"  策略:   {args.strategy}")
     print("  按 Ctrl+C 退出")
     print("=" * 60)
-    
-    client = ExternalAIClient(server_url=args.server, color=args.color)
-    client.ai.strategy = args.strategy
-    
+
+    client = ExternalAIClient(server_url=server_url, strategy=args.strategy)
+
     await client.connect()
 
 
